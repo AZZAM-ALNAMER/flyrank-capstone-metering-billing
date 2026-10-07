@@ -38,10 +38,28 @@ def init_db():
         )
     """)
 
-    # Index for fast "sum this tenant's usage this month" queries
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_usage_tenant_type_date
         ON usage_events (tenant_id, usage_type, created_at)
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id TEXT NOT NULL UNIQUE,
+            stripe_customer_id TEXT,
+            stripe_subscription_id TEXT,
+            status TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS processed_webhook_events (
+            stripe_event_id TEXT PRIMARY KEY,
+            processed_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
     """)
 
     conn.commit()
