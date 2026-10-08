@@ -5,16 +5,12 @@ from pydantic import BaseModel
 from typing import Literal, Optional
 from dotenv import load_dotenv
 
-from db import init_db, get_connection
+from db import init_db
 from services.meter_service import record_usage, TenantNotFound
 from services.quota_service import QuotaExceeded, PLAN_QUOTAS
 from services.stripe_service import create_checkout_session
 from repositories.usage_repo import sum_usage_this_month, get_tenant
-from repositories.subscription_repo import (
-    upsert_subscription,
-    update_tenant_plan,
-    mark_event_processed,
-)
+from repositories.subscription_repo import process_webhook_event
 
 load_dotenv()
 
@@ -120,50 +116,22 @@ async def stripe_webhook(request: Request):
 
     try:
         event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
-    except (ValueError, stripe.error.SignatureVerificationError):
+    except (ValueError, stripe.SignatureVerificationError):
         raise HTTPException(status_code=400, detail="Invalid webhook signature")
+    # Stripe returns StripeObject instances; convert nested data to dicts before
+    # repository code accesses fields with normal dictionary methods such as get().
+    event = event.to_dict()
+    result = process_webhook_event(event)
+    return {"status": result}
 
-    is_new = mark_event_processed(event["id"])
-    if not is_new:
-        return {"status": "already processed"}
 
-    if event["type"] == "checkout.session.completed":
-        session = event["data"]["object"]
-        tenant_id = session["client_reference_id"]
-        upsert_subscription(
-            tenant_id,
-            session["customer"],
-            session["subscription"],
-            "active"
-        )
-        update_tenant_plan(tenant_id, "pro")
 
-    elif event["type"] == "customer.subscription.deleted":
-        subscription = event["data"]["object"]
-        conn = get_connection()
-        row = conn.execute(
-            "SELECT tenant_id FROM subscriptions WHERE stripe_subscription_id = ?",
-            (subscription["id"],)
-        ).fetchone()
-        conn.close()
-        if row:
-            update_tenant_plan(row["tenant_id"], "free")
 
-    elif event["type"] == "customer.subscription.updated":
-        subscription = event["data"]["object"]
-        conn = get_connection()
-        row = conn.execute(
-            "SELECT tenant_id FROM subscriptions WHERE stripe_subscription_id = ?",
-            (subscription["id"],)
-        ).fetchone()
-        conn.close()
-        if row:
-            status = subscription["status"]
-            upsert_subscription(
-                row["tenant_id"],
-                subscription["customer"],
-                subscription["id"],
-                status
-            )
+@app.get("/checkout-success")
+def checkout_success():
+    return {"message": "Payment received. Your plan updates in a few seconds. Check GET /usage."}
 
-    return {"status": "processed"}
+
+@app.get("/checkout-cancel")
+def checkout_cancel():
+    return {"message": "Checkout cancelled. No charge was made."}
