@@ -1,0 +1,11 @@
+name: flyrank-capstone-metering-billing
+run: uvicorn main:app --port 8000
+seed: python seed.py
+test: python test_cost.py
+base_url: http://localhost:8000
+endpoints:
+  - GET /health
+  - POST /generate
+  - GET /usage?tenant_id=tenant-pro-1
+  - POST /checkout?tenant_id=tenant-free-1
+  - POST /webhooks/stripe
