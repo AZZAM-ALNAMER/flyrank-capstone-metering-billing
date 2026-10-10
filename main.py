@@ -9,7 +9,8 @@ from db import init_db
 from services.meter_service import record_usage, TenantNotFound
 from services.quota_service import QuotaExceeded, PLAN_QUOTAS
 from services.stripe_service import create_checkout_session
-from repositories.usage_repo import sum_usage_this_month, get_tenant
+from repositories.usage_repo import sum_usage_this_month, sum_token_columns_this_month, get_tenant
+from services.cost_service import api_call_cost, token_cost
 from repositories.subscription_repo import process_webhook_event
 
 load_dotenv()
@@ -55,6 +56,11 @@ def generate(body: GenerateRequest):
     else:
         if body.tokens is None:
             raise HTTPException(status_code=400, detail="tokens required for ai_tokens usage_type")
+        if body.tokens.cached_input > body.tokens.input:
+            raise HTTPException(
+                status_code=400,
+                detail="cached_input cannot exceed input",
+            )
         quantity = body.tokens.input + body.tokens.output + body.tokens.reasoning
         token_fields = {
             "input_tokens": body.tokens.input,
@@ -91,6 +97,23 @@ def usage(tenant_id: str):
     for usage_type, limit in quotas.items():
         used = sum_usage_this_month(tenant_id, usage_type)
         result["usage"][usage_type] = {"used": used, "limit": limit}
+
+    api_call_micro_usd = api_call_cost(sum_usage_this_month(tenant_id, "api_call"))
+    token_totals = sum_token_columns_this_month(tenant_id)
+    ai_tokens_micro_usd = token_cost(
+        token_totals["input_tokens"],
+        token_totals["cached_input_tokens"],
+        token_totals["output_tokens"],
+        token_totals["reasoning_tokens"],
+    )
+    total_micro_usd = api_call_micro_usd + ai_tokens_micro_usd
+    total_usd = f"{total_micro_usd // 1_000_000}.{total_micro_usd % 1_000_000:06d}"
+    result["cost"] = {
+        "api_call_micro_usd": api_call_micro_usd,
+        "ai_tokens_micro_usd": ai_tokens_micro_usd,
+        "total_micro_usd": total_micro_usd,
+        "total_usd": total_usd,
+    }
 
     return result
 

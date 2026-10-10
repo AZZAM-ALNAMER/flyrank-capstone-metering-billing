@@ -62,6 +62,22 @@ def sum_usage_this_month(tenant_id: str, usage_type: str) -> int:
     return row["total"]
 
 
+def sum_token_columns_this_month(tenant_id: str) -> dict[str, int]:
+    conn = get_connection()
+    row = conn.execute(
+        """SELECT COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                  COALESCE(SUM(cached_input_tokens), 0) AS cached_input_tokens,
+                  COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                  COALESCE(SUM(reasoning_tokens), 0) AS reasoning_tokens
+           FROM usage_events
+           WHERE tenant_id = ? AND usage_type = 'ai_tokens'
+           AND created_at >= date('now', 'start of month')""",
+        (tenant_id,),
+    ).fetchone()
+    conn.close()
+    return dict(row)
+
+
 def get_tenant(tenant_id: str) -> dict | None:
     conn = get_connection()
     row = conn.execute("SELECT * FROM tenants WHERE id = ?", (tenant_id,)).fetchone()

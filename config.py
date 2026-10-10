@@ -1,0 +1,6 @@
+"""Pinned billing rates, expressed as integer micro-USD per unit or million tokens."""
+
+API_CALL_MICRO_USD = 2_000
+FRESH_INPUT_TOKEN_MICRO_USD_PER_MILLION = 1_000_000
+CACHED_INPUT_TOKEN_MICRO_USD_PER_MILLION = 250_000
+OUTPUT_TOKEN_MICRO_USD_PER_MILLION = 4_000_000
